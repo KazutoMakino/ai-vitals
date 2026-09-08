@@ -681,7 +681,7 @@ class SessionSummaryTests(unittest.TestCase):
             json.dump(incidents, f)
             temp_path = f.name
         try:
-            _, status = codex_pulse.cached_google_status(None, "file://" + temp_path)
+            _, status = codex_pulse.cached_google_status(None, Path(temp_path).as_uri())
             self.assertEqual(len(status["groups"]), 2)
             self.assertEqual(status["groups"][0]["name"], "Gemini & Vertex AI")
             self.assertEqual(status["groups"][1]["name"], "Google Cloud Core")

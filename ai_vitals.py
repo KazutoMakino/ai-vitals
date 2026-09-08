@@ -13,12 +13,17 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, cast
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
+
+try:
+    from datetime import UTC
+except ImportError:
+    UTC = timezone.utc  # type: ignore[misc,assignment]
 
 PRICES_PER_MILLION = {
     "gpt-5.6-terra": (2.0, 0.2, 12.0),
