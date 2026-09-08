@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-vitals"
+version = "1.0.0"
+description = "Local, dependency-free usage dashboard for Codex, Claude Code, and Antigravity."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Kazuto Makino" }
+]
+requires-python = ">=3.10"
+dependencies = []
+keywords = [
+    "codex",
+    "claude-code",
+    "antigravity",
+    "gemini",
+    "ai",
+    "dashboard",
+    "tokens",
+    "usage-monitor",
+    "monitoring",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: System :: Monitoring",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/KazutoMakino/ai-vitals"
+Repository = "https://github.com/KazutoMakino/ai-vitals"
+Issues = "https://github.com/KazutoMakino/ai-vitals/issues"
+
+[project.scripts]
+ai-vitals = "ai_vitals:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ai_vitals.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
