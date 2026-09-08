@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.request import Request, urlopen
 
-APP_DIR = Path(__file__).parent
+APP_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(APP_DIR))
 codex_pulse = importlib.import_module("ai_vitals")
 
