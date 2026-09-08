@@ -327,7 +327,7 @@ def detect_antigravity_live_status(timeout_sec: float = 1.5) -> dict[str, Any] |
         if reset_str:
             try:
                 reset_ts = int(datetime.fromisoformat(reset_str.replace("Z", "+00:00")).timestamp())
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 pass
         rem_pct = round(frac * 100) if frac is not None else 0
         used_pct = max(0, min(100, 100 - rem_pct))
@@ -519,7 +519,7 @@ def summarize_agy_session(brain_dir: Path) -> dict[str, Any] | None:
             summary["observed_at"] = created
             try:
                 created_ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 created_ts = None
 
         rec_type = record.get("type")
@@ -630,12 +630,12 @@ def load_claude_usage(state_home: Path) -> dict[str, Any]:
     empty = {"primary": None, "secondary": None}
     try:
         value = json.loads(claude_usage_path(state_home).read_text(encoding="utf-8"))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         # Fallback to legacy codex-pulse directory
         legacy = state_home / "codex-pulse" / "claude-usage.json"
         try:
             value = json.loads(legacy.read_text(encoding="utf-8"))
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return empty
     if not isinstance(value, dict):
         return empty
@@ -654,7 +654,7 @@ def load_agy_usage(state_home: Path) -> dict[str, Any]:
     }
     try:
         value = json.loads(agy_usage_path(state_home).read_text(encoding="utf-8"))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return empty
     if not isinstance(value, dict):
         return empty
@@ -797,7 +797,7 @@ def format_session_snapshot(session: dict[str, Any], provider: str = "Codex") ->
     try:
         dt = datetime.fromisoformat(str(observed).replace("Z", "+00:00"))
         time_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         time_str = str(observed)
 
     model = session.get("model") or "モデル不明"
@@ -1137,7 +1137,7 @@ def cached_google_status(
             else "Active Incidents",
             "groups": groups,
         }
-    except OSError, ValueError, KeyError:
+    except (OSError, ValueError, KeyError):
         value = {"state": "取得不可", "groups": []}
     return now + 60, value
 
@@ -1163,7 +1163,7 @@ def cached_status(
                 summary.get("components", []), incidents.get("incidents", []), date.today(), names
             ),
         }
-    except OSError, ValueError, KeyError:
+    except (OSError, ValueError, KeyError):
         value = {"state": "取得不可", "groups": []}
     return now + 60, value
 
@@ -1315,7 +1315,7 @@ def number(value: Any) -> int:
     """Convert a JSON number to a non-negative integer."""
     try:
         return max(0, int(value))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
@@ -1323,7 +1323,7 @@ def rounded(value: Any) -> int:
     """Round a JSON number like JavaScript's Math.round for non-negative values."""
     try:
         return max(0, int(float(value) + 0.5))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
@@ -1448,7 +1448,7 @@ def create_server(
                     params = parse_qs(split_url.query)
                     try:
                         delay = max(0.0, float(params.get("delay", ["0"])[0]))
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         delay = 0.0
                     self.send_payload(b'{"stopping":true}', "application/json")
                     with shutdown_lock:
