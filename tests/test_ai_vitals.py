@@ -256,7 +256,12 @@ class SessionSummaryTests(unittest.TestCase):
         page = codex_pulse.dashboard_html()
 
         self.assertIn('id="layout-settings"', page)
+        self.assertIn('☰ メニュー', page)
+        self.assertIn('id="layout-item-list"', page)
+        self.assertIn('data-dir="up"', page)
+        self.assertIn('data-dir="down"', page)
         self.assertIn('id="notify-toggle"', page)
+        self.assertIn('menuDropdown.contains(e.target)', page)
         self.assertIn('data-block="overview"', page)
         self.assertIn('data-block="codex"', page)
         self.assertIn('data-block="claude"', page)
@@ -310,7 +315,6 @@ class SessionSummaryTests(unittest.TestCase):
         page = codex_pulse.dashboard_html()
 
         self.assertIn('id="theme-select"', page)
-        self.assertIn('id="theme-select-dialog"', page)
         self.assertIn('html[data-theme="dracula"]', page)
         self.assertIn('html[data-theme="cyberpunk"]', page)
         self.assertIn('html[data-theme="synthwave"]', page)
