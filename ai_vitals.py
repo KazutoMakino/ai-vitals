@@ -1,6 +1,8 @@
-"""Local, dependency-free Codex, Claude Code, and Antigravity usage dashboard."""
+"""ローカル完結型 Codex、Claude Code、Antigravity 利用状況ダッシュボード。
 
-from __future__ import annotations
+ローカル環境における各種AIアシスタントのトークン消費量、利用枠（クォータ）、
+推定コスト、サービス稼働状況を集計し、ブラウザで閲覧可能なダッシュボードを提供します。
+"""
 
 import argparse
 import json
@@ -48,7 +50,14 @@ GEMINI_PRICES_PER_MILLION = {
 
 
 def classify_agy_model(model_name: str | None) -> str:
-    """Return 'gemini' or 'claude_gpt' based on model name."""
+    """モデル名に基づいてモデル系列（gemini または claude_gpt）を判定します。
+
+    Args:
+        model_name (str | None): 判定対象のモデル名。None の場合はデフォルトとして扱われます。
+
+    Returns:
+        str: モデル系列名（"gemini" または "claude_gpt"）。
+    """
     name = (model_name or "").lower()
     if any(k in name for k in ("claude", "gpt", "sonnet", "opus")):
         return "claude_gpt"
@@ -88,7 +97,16 @@ GOOGLE_STATUS_CACHE: tuple[float, dict[str, Any]] | None = None
 
 
 def summarize_session(path: Path) -> dict[str, Any] | None:
-    """Extract the latest usage and safe task metadata from one JSONL file."""
+    """単一の Codex セッション JSONL ファイルから最新の使用量と安全なタスクメタデータを抽出します。
+
+    Args:
+        path (Path): 解析対象の JSONL セッションファイルのパス。
+
+    Returns:
+        dict[str, Any] | None: 抽出されたセッション情報の辞書。有効なレコードが存在しない場合は None。
+            辞書にはセッションID、モデル、利用制限、コンテキストトークン、トークン使用量、
+            推定コスト、タスク情報などが含まれます。
+    """
     summary: dict[str, Any] = {
         "session_id": None,
         "auxiliary": False,
@@ -172,7 +190,11 @@ def summarize_session(path: Path) -> dict[str, Any] | None:
 
 
 def empty_claude_summary() -> dict[str, Any]:
-    """Return a stable empty shape when Claude Code has no local sessions."""
+    """Claude Code のローカルセッションが存在しない場合の初期データ構造を返します。
+
+    Returns:
+        dict[str, Any]: 空の利用量・タスク構造を持つ辞書。
+    """
     return {
         "observed_at": None,
         "model": None,
@@ -189,7 +211,14 @@ def empty_claude_summary() -> dict[str, Any]:
 
 
 def summarize_claude_session(path: Path) -> dict[str, Any] | None:
-    """Sum Claude Code assistant-token records from a single local JSONL session."""
+    """単一の Claude Code セッション JSONL ファイルからアシスタントのトークン記録を集計します。
+
+    Args:
+        path (Path): Claude Code の JSONL セッションファイルのパス。
+
+    Returns:
+        dict[str, Any] | None: 集計されたセッション情報の辞書。有効な利用記録やタスクがない場合は None。
+    """
     summary = empty_claude_summary()
     saw_record = False
     saw_usage = False
@@ -233,7 +262,11 @@ def summarize_claude_session(path: Path) -> dict[str, Any] | None:
 
 
 def empty_agy_summary() -> dict[str, Any]:
-    """Return a stable empty shape when Antigravity has no local sessions."""
+    """Antigravity のローカルセッションが存在しない場合の初期データ構造を返します。
+
+    Returns:
+        dict[str, Any]: デフォルトのモデル（Gemini 2.5 Flash）や空のステップ・トークン数を含む辞書。
+    """
     return {
         "observed_at": None,
         "model": "Gemini 2.5 Flash",
@@ -273,46 +306,208 @@ def empty_agy_summary() -> dict[str, Any]:
 AGY_LIVE_CACHE: tuple[float, dict[str, Any] | None] | None = None
 
 
-def detect_antigravity_live_status(timeout_sec: float = 1.5) -> dict[str, Any] | None:
-    """Connect to running Antigravity language_server to fetch official real-time quota status."""
-    pgrep_bin = shutil.which("pgrep")
-    if not pgrep_bin:
-        return None
-    try:
-        out = subprocess.check_output(  # nosec B603
-            [pgrep_bin, "-af", "language_server"]
-        ).decode("utf-8", "ignore")
-    except Exception:
-        return None
-    token = None
-    pid = None
-    for line in out.splitlines():
-        if "csrf_token" in line:
-            parts = line.split()
-            if parts:
-                pid = parts[0]
-            m = re.search(r"--csrf_token\s+([a-zA-Z0-9-]+)", line)
-            if m:
-                token = m.group(1)
-            break
-    if not token or not pid:
+def _detect_language_server_process() -> tuple[str, str] | None:
+    """Antigravity language_server のプロセスID (PID) と CSRF トークンを検出します。
+
+    Linux、macOS、Windows の各プラットフォームに対応しています。
+
+    Returns:
+        tuple[str, str] | None: (pid, csrf_token) のタプル。検出できない場合は None。
+    """
+    # 1. Windows: PowerShell を使用してプロセスのコマンドラインから抽出
+    if sys.platform == "win32":
+        powershell_bin = shutil.which("powershell") or shutil.which("pwsh")
+        if powershell_bin:
+            try:
+                flags = 0x08000000 if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+                ps_script = (
+                    "Get-CimInstance Win32_Process | "
+                    "Where-Object { $_.CommandLine -like '*csrf_token*' } | "
+                    "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }"
+                )
+                out = subprocess.check_output(  # nosec B603
+                    [powershell_bin, "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                    creationflags=flags,
+                    stderr=subprocess.DEVNULL,
+                ).decode("utf-8", "ignore")
+                for line in out.splitlines():
+                    if "csrf_token" in line:
+                        parts = line.strip().split(None, 1)
+                        if len(parts) >= 2:
+                            pid = parts[0]
+                            m = re.search(r"--csrf_token\s+([a-zA-Z0-9-]+)", parts[1])
+                            if pid and m:
+                                return pid, m.group(1)
+            except Exception:
+                pass
         return None
 
-    ss_bin = shutil.which("ss")
-    if not ss_bin:
+    # 2. macOS: ps コマンドを使用してプロセスコマンドラインを抽出
+    if sys.platform == "darwin":
+        ps_bin = shutil.which("ps")
+        if ps_bin:
+            try:
+                out = subprocess.check_output(  # nosec B603
+                    [ps_bin, "-ax", "-o", "pid,command"],
+                    stderr=subprocess.DEVNULL,
+                ).decode("utf-8", "ignore")
+                for line in out.splitlines():
+                    if "language_server" in line and "csrf_token" in line:
+                        parts = line.strip().split(None, 1)
+                        if len(parts) >= 2:
+                            pid = parts[0]
+                            m = re.search(r"--csrf_token\s+([a-zA-Z0-9-]+)", parts[1])
+                            if pid and m:
+                                return pid, m.group(1)
+            except Exception:
+                pass
         return None
-    try:
-        ss_out = subprocess.check_output(  # nosec B603
-            [ss_bin, "-tulpn"]
-        ).decode("utf-8", "ignore")
-    except Exception:
-        return None
+
+    # 3. Linux / その他 UNIX
+    # 3a. pgrep によるプロセス検索
+    pgrep_bin = shutil.which("pgrep")
+    if pgrep_bin:
+        try:
+            out = subprocess.check_output(  # nosec B603
+                [pgrep_bin, "-af", "language_server"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8", "ignore")
+            for line in out.splitlines():
+                if "csrf_token" in line:
+                    parts = line.split()
+                    pid = parts[0] if parts else None
+                    m = re.search(r"--csrf_token\s+([a-zA-Z0-9-]+)", line)
+                    if pid and m:
+                        return pid, m.group(1)
+        except Exception:
+            pass
+
+    # 3b. /proc ファイルシステム走査によるフォールバック（pgrep 不在時）
+    proc_path = Path("/proc")
+    if proc_path.is_dir():
+        try:
+            for entry in proc_path.iterdir():
+                if entry.is_dir() and entry.name.isdigit():
+                    cmdline_file = entry / "cmdline"
+                    if cmdline_file.is_file():
+                        try:
+                            content = cmdline_file.read_bytes().decode("utf-8", "ignore")
+                            if "language_server" in content and "csrf_token" in content:
+                                m = re.search(r"--csrf_token[\x00\s]+([a-zA-Z0-9-]+)", content)
+                                if m:
+                                    return entry.name, m.group(1)
+                        except OSError:
+                            continue
+        except Exception:
+            pass
+
+    return None
+
+
+def _detect_listening_ports(pid: str) -> list[int]:
+    """指定されたプロセスID (PID) が 127.0.0.1 でリッスンしている TCP ポート一覧を取得します。
+
+    Linux、macOS、Windows の各プラットフォームに対応しています。
+
+    Args:
+        pid (str): 対象プロセスの PID。
+
+    Returns:
+        list[int]: 検出されたローカルポート番号のリスト。
+    """
     ports: list[int] = []
-    for line in ss_out.splitlines():
-        if f"pid={pid}," in line and "127.0.0.1:" in line:
-            m = re.search(r"127\.0\.0\.1:(\d+)", line)
-            if m:
-                ports.append(int(m.group(1)))
+
+    # 1. Windows: netstat -ano -p tcp
+    if sys.platform == "win32":
+        netstat_bin = shutil.which("netstat")
+        if netstat_bin:
+            try:
+                flags = 0x08000000 if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+                out = subprocess.check_output(  # nosec B603
+                    [netstat_bin, "-ano", "-p", "tcp"],
+                    creationflags=flags,
+                    stderr=subprocess.DEVNULL,
+                ).decode("utf-8", "ignore")
+                for line in out.splitlines():
+                    if "LISTENING" in line and "127.0.0.1:" in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 5 and parts[-1] == str(pid):
+                            m = re.search(r"127\.0\.0\.1:(\d+)", parts[1])
+                            if m:
+                                ports.append(int(m.group(1)))
+            except Exception:
+                pass
+        return ports
+
+    # 2. macOS: lsof -nP -iTCP -sTCP:LISTEN -a -p <PID>
+    if sys.platform == "darwin":
+        lsof_bin = shutil.which("lsof")
+        if lsof_bin:
+            try:
+                out = subprocess.check_output(  # nosec B603
+                    [lsof_bin, "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", str(pid)],
+                    stderr=subprocess.DEVNULL,
+                ).decode("utf-8", "ignore")
+                for line in out.splitlines():
+                    m = re.search(r"127\.0\.0\.1:(\d+)", line)
+                    if m:
+                        ports.append(int(m.group(1)))
+            except Exception:
+                pass
+        return ports
+
+    # 3. Linux: ss -tulpn を優先し、lsof にフォールバック
+    ss_bin = shutil.which("ss")
+    if ss_bin:
+        try:
+            ss_out = subprocess.check_output(  # nosec B603
+                [ss_bin, "-tulpn"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8", "ignore")
+            for line in ss_out.splitlines():
+                if f"pid={pid}," in line and "127.0.0.1:" in line:
+                    m = re.search(r"127\.0\.0\.1:(\d+)", line)
+                    if m:
+                        ports.append(int(m.group(1)))
+        except Exception:
+            pass
+
+    if not ports:
+        lsof_bin = shutil.which("lsof")
+        if lsof_bin:
+            try:
+                out = subprocess.check_output(  # nosec B603
+                    [lsof_bin, "-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", str(pid)],
+                    stderr=subprocess.DEVNULL,
+                ).decode("utf-8", "ignore")
+                for line in out.splitlines():
+                    m = re.search(r"127\.0\.0\.1:(\d+)", line)
+                    if m:
+                        ports.append(int(m.group(1)))
+            except Exception:
+                pass
+
+    return ports
+
+
+def detect_antigravity_live_status(timeout_sec: float = 1.5) -> dict[str, Any] | None:
+    """実行中の Antigravity language_server プロセスに接続し、公式のリアルタイムクォータ情報を取得します。
+
+    Linux、macOS、Windows の各プラットフォームに対応しています。
+
+    Args:
+        timeout_sec (float, optional): 各リクエストのタイムアウト秒数。デフォルトは 1.5。
+
+    Returns:
+        dict[str, Any] | None: 取得したプラン名や Gemini / Claude-GPT の各枠（5h / 7d）の情報辞書。
+            language_server が検出できない場合や通信に失敗した場合は None。
+    """
+    proc_info = _detect_language_server_process()
+    if not proc_info:
+        return None
+    pid, token = proc_info
+
+    ports = _detect_listening_ports(pid)
     if not ports:
         return None
 
@@ -452,7 +647,14 @@ def detect_antigravity_live_status(timeout_sec: float = 1.5) -> dict[str, Any] |
 
 
 def get_cached_agy_live_status(max_age_sec: float = 5.0) -> dict[str, Any] | None:
-    """Return cached live status from Antigravity language_server if recent."""
+    """キャッシュされた Antigravity language_server のリアルタイムステータスを返します。
+
+    Args:
+        max_age_sec (float, optional): キャッシュの有効期限（秒）。デフォルトは 5.0。
+
+    Returns:
+        dict[str, Any] | None: Antigravity のステータス情報辞書、または取得不可時は None。
+    """
     global AGY_LIVE_CACHE
     now = time.time()
     if AGY_LIVE_CACHE is not None and (now - AGY_LIVE_CACHE[0]) < max_age_sec:
@@ -463,7 +665,15 @@ def get_cached_agy_live_status(max_age_sec: float = 5.0) -> dict[str, Any] | Non
 
 
 def agy_usage_cost(model: Any, usage: dict[str, int]) -> float | None:
-    """Estimate API-equivalent cost for an Antigravity session."""
+    """Antigravity セッションのトークン消費量から API 相当の推定費用（USD）を算出します。
+
+    Args:
+        model (Any): 使用されたモデル名。
+        usage (dict[str, int]): トークン使用量の辞書（"input_tokens", "output_tokens"）。
+
+    Returns:
+        float | None: 推定費用（USD、小数点以下4桁）。トークンが 0 の場合は None。
+    """
     model_str = str(model or "").lower()
     in_tok = usage.get("input_tokens", 0)
     out_tok = usage.get("output_tokens", 0)
@@ -480,14 +690,14 @@ def agy_usage_cost(model: Any, usage: dict[str, int]) -> float | None:
 
 
 def summarize_agy_session(brain_dir: Path) -> dict[str, Any] | None:
-    """Extract session info from one Antigravity brain transcript.
+    """Antigravity の単一セッション（brain ディレクトリ）のログから利用情報を抽出します。
 
     Args:
-        brain_dir: Path to one brain conversation directory
-            (e.g. ~/.gemini/antigravity/brain/<uuid>).
+        brain_dir (Path): brain 会話ディレクトリのパス
+            （例: ~/.gemini/antigravity/brain/<uuid>）。
 
     Returns:
-        A summary dict, or None if no usable records are found.
+        dict[str, Any] | None: セッションサマリー辞書。有効なレコードが存在しない場合は None。
     """
     transcript = brain_dir / ".system_generated" / "logs" / "transcript_full.jsonl"
     if not transcript.is_file():
@@ -599,13 +809,13 @@ def summarize_agy_session(brain_dir: Path) -> dict[str, Any] | None:
 
 
 def _extract_agy_user_prompt(content: str) -> str | None:
-    """Extract the genuine user request from an AGY USER_INPUT record.
+    """Antigravity の USER_INPUT レコードから本来のユーザーリクエスト行を抽出します。
 
     Args:
-        content: Raw content string from the transcript record.
+        content (str): トランスクリプトレコード内の未加工コンテンツ文字列。
 
     Returns:
-        First meaningful line of the user's request, or None.
+        str | None: 抽出されたユーザーリクエストの先頭行（最大160文字）、または見つからない場合は None。
     """
     in_request = False
     for raw_line in content.splitlines():
@@ -621,17 +831,39 @@ def _extract_agy_user_prompt(content: str) -> str | None:
 
 
 def claude_usage_path(state_home: Path) -> Path:
-    """Return the local-only location for manually captured /usage values."""
+    """手動キャプチャされた Claude の利用量データ（JSON）のローカル保存先パスを返します。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ（XDG_STATE_HOME 等）。
+
+    Returns:
+        Path: claude-usage.json のファイルパス。
+    """
     return state_home / "ai-vitals" / "claude-usage.json"
 
 
 def agy_usage_path(state_home: Path) -> Path:
-    """Return the local-only location for manually captured AGY usage values."""
+    """手動キャプチャされた Antigravity の利用量データ（JSON）のローカル保存先パスを返します。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ（XDG_STATE_HOME 等）。
+
+    Returns:
+        Path: agy-usage.json のファイルパス。
+    """
     return state_home / "ai-vitals" / "agy-usage.json"
 
 
 def load_claude_status_cache(claude_home: Path) -> dict[str, Any] | None:
-    """Read usage limits from Claude's status cache file if present."""
+    """Claude のステータスキャッシュファイルが存在する場合、そこから利用枠制限を読み込みます。
+
+    Args:
+        claude_home (Path): Claude のホームディレクトリパス（~/.claude）。
+
+    Returns:
+        dict[str, Any] | None: 読み込まれた primary（5h）および secondary（7d）の制限情報辞書。
+            ファイルが存在しないか解析に失敗した場合は None。
+    """
     cache_path = claude_home / "vscode-claude-status-cache.json"
     if not cache_path.is_file():
         return None
@@ -691,7 +923,15 @@ def load_claude_status_cache(claude_home: Path) -> dict[str, Any] | None:
 
 
 def load_claude_usage(state_home: Path, claude_home: Path | None = None) -> dict[str, Any]:
-    """Read usage snapshot from Claude status cache or manual /usage config."""
+    """Claude のステータスキャッシュまたは手動保存ファイルから利用量スナップショットを読み込みます。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ。
+        claude_home (Path | None, optional): Claude のホームディレクトリパス。デフォルトは None。
+
+    Returns:
+        dict[str, Any]: primary、secondary、source（"status_cache" または "manual"）を含む辞書。
+    """
     if claude_home is not None:
         cached = load_claude_status_cache(claude_home)
         if cached is not None:
@@ -717,7 +957,14 @@ def load_claude_usage(state_home: Path, claude_home: Path | None = None) -> dict
 
 
 def load_agy_usage(state_home: Path) -> dict[str, Any]:
-    """Read the optional, credential-free snapshot captured from AGY /usage."""
+    """手動設定等により保存された Antigravity の利用量スナップショットを読み込みます。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ。
+
+    Returns:
+        dict[str, Any]: Gemini および Claude/GPT の各枠情報辞書。
+    """
     empty = {
         "gemini": {"primary": None, "secondary": None},
         "claude_gpt": {"primary": None, "secondary": None},
@@ -759,7 +1006,17 @@ def save_claude_usage(
     secondary_used_percent: int,
     secondary_resets_at: int,
 ) -> None:
-    """Store manually observed /usage values without retaining auth material."""
+    """手動で確認された Claude の利用率およびリセット日時をローカルに保存します。
+
+    認証情報やトークン文字列は保持せず、利用率の数値とタイムスタンプのみを記録します。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ。
+        primary_used_percent (int): 5時間枠の使用率パーセント。
+        primary_resets_at (int): 5時間枠のリセット予定時刻（UNIXタイムスタンプ）。
+        secondary_used_percent (int): 7日間枠の使用率パーセント。
+        secondary_resets_at (int): 7日間枠のリセット予定時刻（UNIXタイムスタンプ）。
+    """
     path = claude_usage_path(state_home)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -796,7 +1053,24 @@ def save_agy_usage(
     resets_at: int | None = None,
     window_minutes: int = 10080,
 ) -> None:
-    """Store manually observed AGY usage values without retaining auth material."""
+    """手動で確認された Antigravity の利用状況をローカルに保存します。
+
+    認証情報やトークン文字列は保持せず、利用率の数値とタイムスタンプのみを記録します。
+
+    Args:
+        state_home (Path): 状態保存用ベースディレクトリ。
+        gemini_5h_used (int | None, optional): Gemini 5時間枠の使用率パーセント。
+        gemini_5h_resets_at (int | None, optional): Gemini 5時間枠のリセット時刻（UNIXタイムスタンプ）。
+        gemini_7d_used (int | None, optional): Gemini 7日間枠の使用率パーセント。
+        gemini_7d_resets_at (int | None, optional): Gemini 7日間枠のリセット時刻（UNIXタイムスタンプ）。
+        claude_5h_used (int | None, optional): Claude/GPT 5時間枠の使用率パーセント。
+        claude_5h_resets_at (int | None, optional): Claude/GPT 5時間枠のリセット時刻（UNIXタイムスタンプ）。
+        claude_7d_used (int | None, optional): Claude/GPT 7日間枠の使用率パーセント。
+        claude_7d_resets_at (int | None, optional): Claude/GPT 7日間枠のリセット時刻（UNIXタイムスタンプ）。
+        used_percent (int | None, optional): レガシー互換用の使用率パーセント。
+        resets_at (int | None, optional): レガシー互換用のリセット時刻（UNIXタイムスタンプ）。
+        window_minutes (int, optional): レガシー互換用のウィンドウ期間（分）。デフォルトは 10080（7日）。
+    """
     existing = load_agy_usage(state_home)
     gem_pri = dict(existing["gemini"]["primary"]) if existing["gemini"]["primary"] else {}
     gem_sec = dict(existing["gemini"]["secondary"]) if existing["gemini"]["secondary"] else {}
@@ -863,7 +1137,16 @@ def save_agy_usage(
 
 
 def format_session_snapshot(session: dict[str, Any], provider: str = "Codex") -> str:
-    """Format a session summary into a readable snapshot block for the history panel."""
+    """セッションのサマリー情報を整形し、履歴パネル表示用のテキストブロックを生成します。
+
+    Args:
+        session (dict[str, Any]): 整形対象のセッション情報辞書。
+        provider (str, optional): プロバイダ名（"Codex", "Claude", "Antigravity" 等）。
+            デフォルトは "Codex"。
+
+    Returns:
+        str: アスキーアート枠線付きの整形済みスナップショット文字列。
+    """
     observed = session.get("observed_at") or "日時不明"
     try:
         dt = datetime.fromisoformat(str(observed).replace("Z", "+00:00"))
@@ -945,7 +1228,17 @@ def collect_snapshot(
     claude_home: Path | None = None,
     agy_home: Path | None = None,
 ) -> dict[str, Any]:
-    """Return the latest session, recent tasks, and watch-log history."""
+    """Codex、Claude Code、Antigravity の全セッション・履歴・利用枠・稼働状況を集約したスナップショットを生成します。
+
+    Args:
+        codex_home (Path): Codex のホームディレクトリパス。
+        state_home (Path): 状態保存用ベースディレクトリパス。
+        claude_home (Path | None, optional): Claude のホームディレクトリパス。デフォルトは None。
+        agy_home (Path | None, optional): Antigravity のホームディレクトリパス。デフォルトは None。
+
+    Returns:
+        dict[str, Any]: ダッシュボード表示用の完全なスナップショット辞書。
+    """
     session_files = sorted(
         (path for path in (codex_home / "sessions").glob("**/*.jsonl") if path.is_file()),
         key=lambda path: path.stat().st_mtime,
@@ -1118,14 +1411,22 @@ def collect_snapshot(
 
 
 def openai_status() -> dict[str, Any]:
-    """Read official current status and the visible 90-day incident history."""
+    """OpenAI の公式ステータスおよび直近90日間のインシデント履歴を取得します。
+
+    Returns:
+        dict[str, Any]: 全体状態および各コンポーネント（ChatGPT, Codex）の稼働状況辞書。
+    """
     global STATUS_CACHE
     STATUS_CACHE = cached_status(STATUS_CACHE, STATUS_URL, INCIDENTS_URL, ("ChatGPT", "Codex"))
     return STATUS_CACHE[1]
 
 
 def claude_status() -> dict[str, Any]:
-    """Read the official Claude Code status and incident history."""
+    """Claude Code の公式ステータスおよび直近90日間のインシデント履歴を取得します。
+
+    Returns:
+        dict[str, Any]: 全体状態およびコンポーネントの稼働状況辞書。
+    """
     global CLAUDE_STATUS_CACHE
     CLAUDE_STATUS_CACHE = cached_status(
         CLAUDE_STATUS_CACHE, CLAUDE_STATUS_URL, CLAUDE_INCIDENTS_URL, ("Claude Code",)
@@ -1134,7 +1435,11 @@ def claude_status() -> dict[str, Any]:
 
 
 def google_status() -> dict[str, Any]:
-    """Read public Google Cloud / Gemini status and 90-day incident history."""
+    """Google Cloud および Gemini の公式ステータスと直近90日間のインシデント履歴を取得します。
+
+    Returns:
+        dict[str, Any]: 全体状態および各グループ（Gemini & Vertex AI, Core）の稼働状況辞書。
+    """
     global GOOGLE_STATUS_CACHE
     GOOGLE_STATUS_CACHE = cached_google_status(GOOGLE_STATUS_CACHE, GOOGLE_STATUS_URL)
     return GOOGLE_STATUS_CACHE[1]
@@ -1144,7 +1449,15 @@ def cached_google_status(
     cache: tuple[float, dict[str, Any]] | None,
     incidents_url: str,
 ) -> tuple[float, dict[str, Any]]:
-    """Fetch official Google Cloud status with a short local cache."""
+    """短時間ローカルキャッシュを利用して Google Cloud / Gemini の公式ステータスを取得します。
+
+    Args:
+        cache (tuple[float, dict[str, Any]] | None): (有効期限タイムスタンプ, キャッシュデータ) のタプル。
+        incidents_url (str): Google Cloud インシデント一覧 API の URL。
+
+    Returns:
+        tuple[float, dict[str, Any]]: (次回有効期限タイムスタンプ, ステータス辞書) のタプル。
+    """
     now = time.monotonic()
     if cache and cache[0] > now:
         return cache
@@ -1219,7 +1532,17 @@ def cached_status(
     incidents_url: str,
     names: tuple[str, ...],
 ) -> tuple[float, dict[str, Any]]:
-    """Fetch one official status provider with a short local cache."""
+    """短時間ローカルキャッシュを利用して Statuspage 互換プロバイダの公式ステータスを取得します。
+
+    Args:
+        cache (tuple[float, dict[str, Any]] | None): (有効期限タイムスタンプ, キャッシュデータ) のタプル。
+        summary_url (str): サマリー API の URL。
+        incidents_url (str): インシデント一覧 API の URL。
+        names (tuple[str, ...]): 抽出対象とする製品・コンポーネント名のタプル（例: ("ChatGPT", "Codex")）。
+
+    Returns:
+        tuple[float, dict[str, Any]]: (次回有効期限タイムスタンプ, ステータス辞書) のタプル。
+    """
     now = time.monotonic()
     if cache and cache[0] > now:
         return cache
@@ -1245,7 +1568,17 @@ def status_groups(
     today: date,
     names: tuple[str, ...] = ("ChatGPT", "Codex"),
 ) -> list[dict[str, Any]]:
-    """Summarize public ChatGPT and Codex incidents into 90 calendar-day bars."""
+    """公開インシデント情報を集計し、対象製品ごとの直近90日間の稼働バー表示用データを生成します。
+
+    Args:
+        components (Any): API から取得したコンポーネントリスト。
+        incidents (Any): API から取得したインシデントリスト。
+        today (date): 集計基準日（本日）。
+        names (tuple[str, ...], optional): 集計対象の製品名グループ。デフォルトは ("ChatGPT", "Codex")。
+
+    Returns:
+        list[dict[str, Any]]: 各製品グループの健全性パーセント、日別ステータス配列、コンポーネント一覧を含む辞書のリスト。
+    """
     component_items = components if isinstance(components, list) else []
     incident_items = incidents if isinstance(incidents, list) else []
     groups = []
@@ -1280,7 +1613,14 @@ def status_groups(
 
 
 def incident_text(incident: dict[str, Any]) -> str:
-    """Combine the public incident text used to identify its product."""
+    """インシデント情報から対象製品を判別するためのテキスト（タイトルと更新本文）を結合して小文字で返します。
+
+    Args:
+        incident (dict[str, Any]): インシデント情報の辞書。
+
+    Returns:
+        str: 結合された小文字のテキスト。
+    """
     updates = incident.get("incident_updates")
     bodies = [
         item.get("body", "")
@@ -1291,7 +1631,14 @@ def incident_text(incident: dict[str, Any]) -> str:
 
 
 def incident_date(value: Any) -> date | None:
-    """Parse an ISO-8601 incident timestamp without trusting malformed data."""
+    """ISO-8601 形式のインシデント日時文字列を UTC の date オブジェクトに変換します。
+
+    Args:
+        value (Any): 日時文字列（例: "2026-03-01T12:00:00Z"）。
+
+    Returns:
+        date | None: 変換された date オブジェクト。無効なデータの場合は None。
+    """
     if not isinstance(value, str):
         return None
     try:
@@ -1301,12 +1648,28 @@ def incident_date(value: Any) -> date | None:
 
 
 def incident_severity(impact: Any) -> str:
-    """Map the status API impact to the compact bar palette."""
+    """Statuspage の impact 値を稼働バーの色区分（"bad" または "warn"）にマッピングします。
+
+    Args:
+        impact (Any): インシデントの影響度（"major", "critical", "minor" 等）。
+
+    Returns:
+        str: "bad"（重大障害）または "warn"（軽微な障害）。
+    """
     return "bad" if impact in {"major", "critical"} else "warn"
 
 
 def first_user_prompt(payload: dict[str, Any]) -> str | None:
-    """Return the first line of a user message without retaining its body."""
+    """ユーザーメッセージのペイロードから本文を保持せず先頭行のみを抽出します。
+
+    システムプロンプトやラッパー指示行を除外し、安全なタスク概要として先頭行（最大160文字）を返します。
+
+    Args:
+        payload (dict[str, Any]): メッセージペイロード辞書。
+
+    Returns:
+        str | None: 抽出されたプロンプト先頭行、または None。
+    """
     if payload.get("type") != "message" or payload.get("role") != "user":
         return None
     content = payload.get("content")
@@ -1327,7 +1690,14 @@ def first_user_prompt(payload: dict[str, Any]) -> str | None:
 
 
 def first_claude_user_prompt(record: dict[str, Any]) -> str | None:
-    """Extract the first safe line from one Claude Code user record."""
+    """Claude Code のユーザーレコードから安全な先頭プロンプト行を抽出します。
+
+    Args:
+        record (dict[str, Any]): Claude Code の JSONL ユーザーレコード。
+
+    Returns:
+        str | None: 抽出されたプロンプト先頭行、または None。
+    """
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     payload = {"type": "message", "role": "user", "content": content}
@@ -1335,7 +1705,14 @@ def first_claude_user_prompt(record: dict[str, Any]) -> str | None:
 
 
 def injected_context_line(line: str) -> bool:
-    """Exclude known instruction wrappers from the task title."""
+    """指定されたテキスト行が既知の指示ラッパー（AGENTS.md やトランスクリプト接頭辞等）かどうかを判定します。
+
+    Args:
+        line (str): 判定対象のテキスト行。
+
+    Returns:
+        bool: ラッパー行であれば True、通常のユーザー入力行であれば False。
+    """
     return line.startswith(
         (
             "<",
@@ -1349,7 +1726,14 @@ def injected_context_line(line: str) -> bool:
 
 
 def normalize_usage(raw: dict[str, Any]) -> dict[str, int]:
-    """Normalize Codex token usage fields."""
+    """Codex のトークン使用量辞書のキーと数値を正規化します。
+
+    Args:
+        raw (dict[str, Any]): 生のトークン使用量辞書。
+
+    Returns:
+        dict[str, int]: 正規化されたトークン数辞書（input_tokens, cached_input_tokens, output_tokens, total_tokens）。
+    """
     return {
         "input_tokens": number(raw.get("input_tokens")),
         "cached_input_tokens": number(raw.get("cached_input_tokens")),
@@ -1359,7 +1743,15 @@ def normalize_usage(raw: dict[str, Any]) -> dict[str, int]:
 
 
 def normalize_limit(raw: Any) -> dict[str, Any] | None:
-    """Normalize one Codex rate-limit window."""
+    """レート制限ウィンドウの情報を正規化します。
+
+    Args:
+        raw (Any): 生の制限情報辞書。
+
+    Returns:
+        dict[str, Any] | None: label、used_percent、window_minutes、resets_at、is_reset を含む辞書。
+            入力が辞書でない場合は None。
+    """
     if not isinstance(raw, dict):
         return None
     minutes = number(raw.get("window_minutes"))
@@ -1374,7 +1766,14 @@ def normalize_limit(raw: Any) -> dict[str, Any] | None:
 
 
 def limit_label(minutes: int) -> str:
-    """Give a compact display label for a limit window."""
+    """制限ウィンドウの分数から簡潔な表示ラベルを生成します。
+
+    Args:
+        minutes (int): ウィンドウの分数（300 -> "5h", 10080 -> "7d" 等）。
+
+    Returns:
+        str: 表示ラベル文字列（"5h", "7d", "XXm" 等）。
+    """
     if minutes == 300:
         return "5h"
     if minutes == 10080:
@@ -1383,7 +1782,14 @@ def limit_label(minutes: int) -> str:
 
 
 def number(value: Any) -> int:
-    """Convert a JSON number to a non-negative integer."""
+    """JSON 値を非負の整数（int）に変換します。
+
+    Args:
+        value (Any): 変換対象の値。
+
+    Returns:
+        int: 0 以上の整数。変換できない場合は 0。
+    """
     try:
         return max(0, int(value))
     except (TypeError, ValueError):
@@ -1391,7 +1797,14 @@ def number(value: Any) -> int:
 
 
 def rounded(value: Any) -> int:
-    """Round a JSON number like JavaScript's Math.round for non-negative values."""
+    """数値を四捨五入して非負の整数（int）に変換します。
+
+    Args:
+        value (Any): 変換対象の数値。
+
+    Returns:
+        int: 四捨五入された非負の整数。変換できない場合は 0。
+    """
     try:
         return max(0, int(float(value) + 0.5))
     except (TypeError, ValueError):
@@ -1399,15 +1812,37 @@ def rounded(value: Any) -> int:
 
 
 def percent(used: int, capacity: int) -> int | None:
-    """Return rounded usage percent when a context capacity exists."""
+    """使用量と容量から四捨五入した使用率パーセントを算出します。
+
+    Args:
+        used (int): 使用量。
+        capacity (int): 最大容量。
+
+    Returns:
+        int | None: 使用率（0〜100等）。容量が 0 の場合は None。
+    """
     return rounded(used * 100 / capacity) if capacity else None
 
 
 def default_codex_home() -> Path:
+    """環境変数 CODEX_HOME またはデフォルトの ~/.codex パスを返します。
+
+    Returns:
+        Path: Codex ホームディレクトリのパス。
+    """
     return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 
 
 def default_state_home(platform: str | None = None) -> Path:
+    """OS ごとの標準的なステート保存先ディレクトリパスを返します。
+
+    Args:
+        platform (str | None, optional): 判定対象のプラットフォーム文字列（"win32" 等）。
+            None の場合は sys.platform を使用。
+
+    Returns:
+        Path: ステートディレクトリのパス（XDG_STATE_HOME, %LOCALAPPDATA%, または ~/.local/state）。
+    """
     if "XDG_STATE_HOME" in os.environ:
         return Path(os.environ["XDG_STATE_HOME"])
     current_platform = platform or sys.platform
@@ -1417,16 +1852,33 @@ def default_state_home(platform: str | None = None) -> Path:
 
 
 def default_claude_home() -> Path:
+    """環境変数 CLAUDE_HOME またはデフォルトの ~/.claude パスを返します。
+
+    Returns:
+        Path: Claude ホームディレクトリのパス。
+    """
     return Path(os.environ.get("CLAUDE_HOME", Path.home() / ".claude"))
 
 
 def default_agy_home() -> Path:
-    """Return the default Antigravity data directory."""
+    """環境変数 ANTIGRAVITY_HOME またはデフォルトの Antigravity データディレクトリパスを返します。
+
+    Returns:
+        Path: Antigravity ホームディレクトリのパス（~/.gemini/antigravity）。
+    """
     return Path(os.environ.get("ANTIGRAVITY_HOME", Path.home() / ".gemini" / "antigravity"))
 
 
 def usage_cost(model: Any, usage: dict[str, int]) -> float | None:
-    """Estimate API-equivalent cost for one token-count event."""
+    """Codex のトークン使用量から API 相当の推定費用（USD）を算出します。
+
+    Args:
+        model (Any): モデル名（gpt-5 等）。
+        usage (dict[str, int]): トークン使用量辞書（input_tokens, cached_input_tokens, output_tokens）。
+
+    Returns:
+        float | None: 推定費用（USD）。価格未定義モデルの場合は None。
+    """
     model_id = str(model or "").lower()
     price = next(
         (
@@ -1447,7 +1899,18 @@ def usage_cost(model: Any, usage: dict[str, int]) -> float | None:
 
 
 def claude_usage_cost(model: Any, usage: dict[str, int]) -> dict[str, float] | None:
-    """Return an API-equivalent cost range when cache-creation TTL is unavailable."""
+    """Claude Code のトークン使用量から API 相当の推定費用範囲（USD）を算出します。
+
+    キャッシュ作成 TTL の詳細が不明なため、最小値と最大値の範囲として返します。
+
+    Args:
+        model (Any): モデル名（claude-sonnet-4.6 等）。
+        usage (dict[str, int]): トークン使用量辞書。
+
+    Returns:
+        dict[str, float] | None: 最小・最大推定費用の辞書（"minimum_usd", "maximum_usd"）、
+            または未定義時は None。
+    """
     model_id = str(model or "").lower()
     price = next(
         (value for key, value in CLAUDE_PRICES_PER_MILLION.items() if model_id.startswith(key)),
@@ -1476,7 +1939,22 @@ def create_server(
     claude_home: Path | None = None,
     agy_home: Path | None = None,
 ) -> ThreadingHTTPServer:
-    """Serve the dashboard and current JSON snapshot on one loopback server."""
+    """ダッシュボードUIおよびスナップショットAPIを提供するループバックHTTPサーバーを生成します。
+
+    Args:
+        host (str): バインド先ホストアドレス（ローカル専用のため "127.0.0.1" 必須）。
+        port (int): リッスンポート番号。
+        codex_home (Path): Codex ホームディレクトリパス。
+        state_home (Path): 状態保存用ベースディレクトリパス。
+        claude_home (Path | None, optional): Claude ホームディレクトリパス。デフォルトは None。
+        agy_home (Path | None, optional): Antigravity ホームディレクトリパス。デフォルトは None。
+
+    Returns:
+        ThreadingHTTPServer: 設定済みのマルチスレッドHTTPサーバーインスタンス。
+
+    Raises:
+        ValueError: host が "127.0.0.1" 以外の場合。
+    """
     if host != "127.0.0.1":
         raise ValueError("AI Vitals only serves on 127.0.0.1")
 
@@ -1491,6 +1969,8 @@ def create_server(
                 shutdown_timer[0] = None
 
     class Handler(BaseHTTPRequestHandler):
+        """ダッシュボード HTML および API エンドポイントを処理する HTTP リクエストハンドラ。"""
+
         def do_GET(self) -> None:  # noqa: N802 - required stdlib handler name
             cancel_delayed_shutdown()
             route = urlsplit(self.path).path
@@ -1608,12 +2088,24 @@ def create_server(
 
 
 def open_dashboard(url: str, browser: Callable[[str], Any] = webbrowser.open) -> None:
-    """Open the dashboard URL through the configured system browser."""
+    """システム標準または指定されたブラウザでダッシュボード URL を開きます。
+
+    Args:
+        url (str): 開く対象のダッシュボード URL。
+        browser (Callable[[str], Any], optional): ブラウザ起動用関数。デフォルトは webbrowser.open。
+    """
     browser(url)
 
 
 def detached_process_options(platform: str | None = None) -> dict[str, Any]:
-    """Return stdlib process options that detach on Linux and Windows."""
+    """Linux および Windows でプロセスをバックグラウンドへ完全にデタッチして起動するための引数辞書を生成します。
+
+    Args:
+        platform (str | None, optional): 判定対象のプラットフォーム文字列。None の場合は os.name を使用。
+
+    Returns:
+        dict[str, Any]: subprocess.Popen に渡すキーワード引数辞書（stdin/stdout/stderr, creationflags または start_new_session）。
+    """
     options: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -1629,13 +2121,24 @@ def detached_process_options(platform: str | None = None) -> dict[str, Any]:
 
 
 def background_command(argv: list[str]) -> list[str]:
-    """Return the child command without foreground-only flags."""
+    """フォアグラウンド専用オプションを除去し、バックグラウンド子プロセス用の実行コマンドラインを構築します。
+
+    Args:
+        argv (list[str]): 元のコマンドライン引数リスト。
+
+    Returns:
+        list[str]: バックグラウンド実行用の引数リスト（python 実行バイナリおよびスクリプトパスを含む）。
+    """
     child_args = [arg for arg in argv if arg not in {"-b", "--background", "--no-open"}]
     return [sys.executable, str(Path(__file__).resolve()), *child_args, "--no-open"]
 
 
 def legacy_dashboard_html() -> str:
-    """Return the self-contained, information-dense dashboard shell."""
+    """情報密度の高いレガシーなスタンドアロン型ダッシュボード HTML を返します。
+
+    Returns:
+        str: レガシーダッシュボード用の HTML/CSS/JS 文字列。
+    """
     return """<!doctype html>
 <html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Codex Claude Vitals</title>
@@ -1658,7 +2161,11 @@ async function loadSnapshot(){try{render(await (await fetch('/api/snapshot',{cac
 
 
 def dashboard_html() -> str:
-    """Return the customizable dashboard shell."""
+    """テーマ切り替え・ドラッグ並び替え対応のカスタマイズ可能なダッシュボード HTML を返します。
+
+    Returns:
+        str: ダッシュボード用の完全な HTML/CSS/JS 文字列。
+    """
     return """<!doctype html>
 <html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Vitals</title>
@@ -1718,7 +2225,11 @@ async function loadSnapshot(){try{render(await (await fetch('/api/snapshot',{cac
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Start the loopback dashboard."""
+    """コマンドライン引数をパースし、AI Vitals ダッシュボードサーバーまたはデータ保存処理を実行します。
+
+    Args:
+        argv (list[str] | None, optional): コマンドライン引数リスト。None の場合は sys.argv[1:] を使用。
+    """
     raw_args = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         description="Show local Codex, Claude Code, and Antigravity usage in a browser."

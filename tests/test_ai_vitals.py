@@ -1074,6 +1074,68 @@ class SessionSummaryTests(unittest.TestCase):
                 self.assertEqual(resp.status, 200)
 
 
+class DetectLiveStatusPlatformTest(unittest.TestCase):
+    @patch("sys.platform", "linux")
+    @patch("shutil.which", return_value="/usr/bin/pgrep")
+    @patch("subprocess.check_output")
+    def test_detect_process_linux(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b"12345 /opt/antigravity/bin/language_server --csrf_token abc-123-def --port 0\n"
+        )
+        res = codex_pulse._detect_language_server_process()
+        self.assertEqual(res, ("12345", "abc-123-def"))
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which", return_value="/bin/ps")
+    @patch("subprocess.check_output")
+    def test_detect_process_macos(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b" 9876 /Applications/Antigravity.app/Contents/MacOS/language_server --csrf_token mac-token-789\n"
+        )
+        res = codex_pulse._detect_language_server_process()
+        self.assertEqual(res, ("9876", "mac-token-789"))
+
+    @patch("sys.platform", "win32")
+    @patch("shutil.which", return_value="powershell.exe")
+    @patch("subprocess.check_output")
+    def test_detect_process_windows(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b"5432 C:\\Users\\km\\AppData\\Local\\Antigravity\\language_server.exe --csrf_token win-token-456\r\n"
+        )
+        res = codex_pulse._detect_language_server_process()
+        self.assertEqual(res, ("5432", "win-token-456"))
+
+    @patch("sys.platform", "linux")
+    @patch("shutil.which", return_value="/usr/bin/ss")
+    @patch("subprocess.check_output")
+    def test_detect_ports_linux(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b"LISTEN 0 128 127.0.0.1:45678 0.0.0.0:* users:((\"language_server\",pid=12345,fd=7))\n"
+        )
+        ports = codex_pulse._detect_listening_ports("12345")
+        self.assertEqual(ports, [45678])
+
+    @patch("sys.platform", "darwin")
+    @patch("shutil.which", return_value="/usr/sbin/lsof")
+    @patch("subprocess.check_output")
+    def test_detect_ports_macos(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b"language_ 9876 user 12u IPv4 0x1234 0t0 TCP 127.0.0.1:56789 (LISTEN)\n"
+        )
+        ports = codex_pulse._detect_listening_ports("9876")
+        self.assertEqual(ports, [56789])
+
+    @patch("sys.platform", "win32")
+    @patch("shutil.which", return_value="netstat.exe")
+    @patch("subprocess.check_output")
+    def test_detect_ports_windows(self, mock_output, mock_which):
+        mock_output.return_value = (
+            b"  TCP    127.0.0.1:61234        0.0.0.0:0              LISTENING       5432\r\n"
+        )
+        ports = codex_pulse._detect_listening_ports("5432")
+        self.assertEqual(ports, [61234])
+
+
 @contextmanager
 def running_server(
     codex_home: Path, state_home: Path, claude_home: Path, agy_home: Path | None = None

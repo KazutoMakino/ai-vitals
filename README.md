@@ -33,6 +33,43 @@
 
 ---
 
+## 📋 前提条件 (Prerequisites)
+
+本ツールを使用するにあたり、以下の環境・前提条件をご確認ください。
+
+### 1. 実行環境
+- **Python 3.10 以上**
+  - Python 標準ライブラリのみで動作します（`pip` による追加パッケージのインストールは不要です）。
+- **Web ブラウザ**
+  - モダンブラウザ（Google Chrome, Microsoft Edge, Firefox, Safari 等）。
+  - クォータ上限到達やリセット解除のデスクトップ通知を利用する場合は、ブラウザ側で通知の許可が必要です。
+- **空きポート**
+  - デフォルトの待受ポート `4202`（`--port` オプションで変更可能）。
+
+### 2. 監視対象ツールの利用環境
+本ツールは、各アシスタントがローカルに保存するセッションログやキャッシュを解析して可視化します。
+以下のいずれか（またはすべて）の利用ログが存在する必要があります：
+
+- **Codex (ChatGPT)**:
+  - `~/.codex/sessions/` 配下に JSONL ログが存在すること（`CODEX_HOME` 環境変数で変更可能）。
+- **Claude Code (Anthropic)**:
+  - `~/.claude/projects/` 配下に JSONL ログ、または `~/.claude/vscode-claude-status-cache.json` が存在すること（`CLAUDE_HOME` 環境変数で変更可能）。
+- **Antigravity (Google Gemini)**:
+  - `~/.gemini/antigravity/brain/` 配下にトランスクリプトログが存在すること（`ANTIGRAVITY_HOME` 環境変数で変更可能）。
+
+> [!NOTE]
+> **すべてのツールを導入している必要はありません**。お使いのツールのログのみが自動検出されてダッシュボードに反映されます（1種類のみの利用でも問題なく動作します）。
+
+### 3. オプション要件
+- **Antigravity リアルタイムクォータ連携 (Linux / macOS / Windows 対応)**:
+  - 実行中の Antigravity language_server からリアルタイムの公式クォータ（5h / 7d）を自動取得する場合、**Antigravity (IDE) が起動中** である必要があります。
+  - OSごとの標準コマンド（Linux: `pgrep`・`ss`・`lsof`、macOS: `ps`・`lsof`、Windows: PowerShell・`netstat`）を利用して自動連携するため、**追加ツールのインストールは不要**です。
+- **各社障害ステータス・インシデント履歴の表示**:
+  - OpenAI、Claude、Google Cloud の公式ステータス API（Statuspage / incidents.json）へアクセスするため、**インターネット接続（HTTPS 通信）** が必要です。
+  - ※ オフライン環境でもローカルログの集計やダッシュボード機能は動作します（ステータス欄のみ「取得不可」表示となります）。
+
+---
+
 ## 🚀 クイックスタート (Quick Start)
 
 ### 1. リポジトリをクローンまたはダウンロード
