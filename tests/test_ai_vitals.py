@@ -399,6 +399,65 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertEqual(saved["primary"]["used_percent"], 25)
         self.assertEqual(saved["secondary"]["resets_at"], 1_788_940_800)
 
+    def test_load_claude_status_cache_reads_vscode_cache(self):
+        """Read 5h and 7d limits directly from vscode-claude-status-cache.json."""
+        cache_file = self.claude_home / "vscode-claude-status-cache.json"
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "updatedAt": "2026-09-11T17:43:32.566Z",
+                    "usageData": {
+                        "utilization5h": 0.05,
+                        "utilization7d": 0.12,
+                        "reset5hAt": 1789165800,
+                        "reset7dAt": 1789318800,
+                        "limitStatus": "allowed",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        limits = codex_pulse.load_claude_status_cache(self.claude_home)
+        self.assertIsNotNone(limits)
+        self.assertEqual(limits["source"], "status_cache")
+        self.assertEqual(limits["primary"]["used_percent"], 5)
+        self.assertEqual(limits["primary"]["window_minutes"], 300)
+        self.assertEqual(limits["primary"]["resets_at"], 1789165800)
+        self.assertEqual(limits["secondary"]["used_percent"], 12)
+        self.assertEqual(limits["secondary"]["window_minutes"], 10080)
+        self.assertEqual(limits["secondary"]["resets_at"], 1789318800)
+
+    def test_load_claude_usage_prefers_status_cache_over_manual(self):
+        """Status cache takes priority over manual claude-usage.json."""
+        cache_file = self.claude_home / "vscode-claude-status-cache.json"
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "usageData": {
+                        "utilization5h": 0.20,
+                        "reset5hAt": 1789165800,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        codex_pulse.save_claude_usage(
+            self.state_home,
+            primary_used_percent=50,
+            primary_resets_at=1789100000,
+            secondary_used_percent=10,
+            secondary_resets_at=1789200000,
+        )
+
+        limits = codex_pulse.load_claude_usage(self.state_home, self.claude_home)
+        self.assertEqual(limits["source"], "status_cache")
+        self.assertEqual(limits["primary"]["used_percent"], 20)
+
     def test_main_refuses_non_loopback_host(self):
         """Reject a bind address that could expose task metadata."""
         with self.assertRaises(SystemExit):
