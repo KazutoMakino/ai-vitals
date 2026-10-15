@@ -24,6 +24,7 @@
   - ⚡ **リアルタイム秒単位カウントダウン**: 5時間リセット・週制限リセットまでの残り時間をライブ表示。
   - 📈 **週枠消費ペース判定**: 経過時間と消費率からペースをリアルタイム判定（`⚡ ハイペース注意` / `⚡ 適正ペース` / `⚡ 安全ペース`）。
   - 📊 **本日横断サマリー (Today's Overview)**: 3ツールの合計タスク数・合算推定APIコスト・総消費トークンを一目で把握。
+  - 📅 **月間使用量・クォータ（予算・トークン上限）管理**: 当月の利用実績（推定コスト・トークン数・タスク数）の横断集計と、ツール別・全体の月間予算および上限進捗バー、月間消化ペース判定（`⚡ ハイペース注意` / `⚡ 適正ペース` / `⚡ 安全ペース`）。
   - ⚠️ **コンテキスト肥大化警告**: トークン消費が一定ラインを超えた場合に警告バッジを表示。
   - 🔔 **デスクトップWeb通知**: クォータが上限（残り0%）に達した際やリセット解除時にブラウザ通知。
   - 🚦 **各社障害ステータス常時表示**: OpenAI、Claude、Google各サービスの稼働状態と90日インシデント履歴を常時モニタリング。
@@ -140,6 +141,16 @@ python3 ai_vitals.py --save-claude-usage \
 ```bash
 python3 ai_vitals.py --save-agy-usage \
   --agy-gemini-5h-remaining 75 --agy-gemini-7d-remaining 40
+```
+
+### 月間予算・上限設定 (Monthly Quotas & Budgets)
+画面右上の「☰ メニュー」内の「月間予算・上限設定」からGUIで入力・保存するか、CLIから保存できます。
+```bash
+python3 ai_vitals.py --save-monthly-settings \
+  --billing-day 1 \
+  --monthly-budget-codex 15.0 --monthly-tokens-codex 2000000 \
+  --monthly-budget-claude 25.0 --monthly-tokens-claude 3000000 \
+  --monthly-budget-agy 10.0 --monthly-tokens-agy 5000000
 ```
 
 ---
