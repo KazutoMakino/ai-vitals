@@ -755,10 +755,12 @@ class SessionSummaryTests(unittest.TestCase):
             os.unlink(temp_path)
 
     def test_classify_agy_model(self):
-        """Verify Antigravity models are correctly sorted into gemini and claude_gpt families."""
+        """Verify Antigravity models are correctly sorted into gemini, claude_gpt, and argon families."""
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 3.8 Flash Medium Fast"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 2.5 Flash"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 3.1 Pro Low"), "gemini")
+        self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Argon Medium"), "argon")
+        self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Argon"), "argon")
         self.assertEqual(
             codex_pulse.classify_agy_model("Claude Sonnet 4.6 (Thinking)"), "claude_gpt"
         )
@@ -766,19 +768,21 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertEqual(codex_pulse.classify_agy_model("GPT-OSS 120B (Medium)"), "claude_gpt")
 
     def test_save_and_load_agy_dual_track_usage(self):
-        """Verify saving and reading dual-track rate limits for Gemini and Claude/GPT."""
+        """Verify saving and reading rate limits for Gemini, Claude/GPT, and Argon."""
         codex_pulse.save_agy_usage(
             self.state_home,
             gemini_5h_used=16,
             gemini_7d_used=8,
             claude_5h_used=100,
             claude_7d_used=34,
+            argon_7d_used=29,
         )
         loaded = codex_pulse.load_agy_usage(self.state_home)
         self.assertEqual(loaded["gemini"]["primary"]["used_percent"], 16)
         self.assertEqual(loaded["gemini"]["secondary"]["used_percent"], 8)
         self.assertEqual(loaded["claude_gpt"]["primary"]["used_percent"], 100)
         self.assertEqual(loaded["claude_gpt"]["secondary"]["used_percent"], 34)
+        self.assertEqual(loaded["argon"]["secondary"]["used_percent"], 29)
 
     def test_post_agy_usage_endpoint_with_remaining_percentages(self):
         """Verify POST /api/agy-usage converts remaining percentages into used percentages."""
@@ -793,6 +797,7 @@ class SessionSummaryTests(unittest.TestCase):
                         "gemini_7d_remaining": 92,
                         "claude_5h_remaining": 0,
                         "claude_7d_remaining": 66,
+                        "argon_7d_remaining": 71,
                     }
                 ).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
@@ -807,14 +812,18 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertEqual(loaded["gemini"]["secondary"]["used_percent"], 8)
         self.assertEqual(loaded["claude_gpt"]["primary"]["used_percent"], 100)
         self.assertEqual(loaded["claude_gpt"]["secondary"]["used_percent"], 34)
+        self.assertEqual(loaded["argon"]["secondary"]["used_percent"], 29)
 
     def test_dashboard_html_contains_dual_track_agy_elements(self):
-        """Verify the dashboard HTML exposes Gemini and Claude/GPT cards and the usage dialog."""
+        """Verify the dashboard HTML exposes Gemini, Claude/GPT, and Argon cards and the usage dialog."""
         page = codex_pulse.dashboard_html()
         self.assertIn("GEMINI MODELS", page)
         self.assertIn("CLAUDE &amp; GPT", page)
+        self.assertIn("GEMINI 4 ARGON", page)
         self.assertIn('id="agy-gem-5h-val"', page)
         self.assertIn('id="agy-cld-5h-val"', page)
+        self.assertIn('id="agy-arg-7d-val"', page)
+        self.assertIn('id="input-arg-7d"', page)
         self.assertIn('id="agy-usage-dialog"', page)
 
     def test_dashboard_html_tasks_has_scroll_css(self):
