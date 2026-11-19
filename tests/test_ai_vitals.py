@@ -824,6 +824,67 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertEqual(loaded["claude_gpt"]["secondary"]["used_percent"], 34)
         self.assertEqual(loaded["argon"]["secondary"]["used_percent"], 29)
 
+    def test_clear_agy_manual_usage_restores_auto_mode(self):
+        """Verify clear_fields and clear=True erase manual AGY overrides to restore auto mode."""
+        with running_server(
+            self.codex_home, self.state_home, self.claude_home, self.agy_home
+        ) as base_url:
+            # 1. Save manual values
+            req = Request(
+                base_url + "/api/agy-usage",
+                data=json.dumps(
+                    {
+                        "gemini_5h_remaining": 80,
+                        "gemini_7d_remaining": 90,
+                        "claude_5h_remaining": 70,
+                        "argon_7d_remaining": 60,
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req) as response:  # nosec B310
+                self.assertTrue(json.load(response).get("ok"))
+
+            # 2. Clear specific fields via clear_fields
+            req_partial = Request(
+                base_url + "/api/agy-usage",
+                data=json.dumps({"clear_fields": ["gemini_5h", "argon_7d"]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req_partial) as response:  # nosec B310
+                self.assertTrue(json.load(response).get("ok"))
+
+            loaded_partial = codex_pulse.load_agy_usage(self.state_home)
+            self.assertIsNone(loaded_partial["gemini"]["primary"])
+            self.assertEqual(loaded_partial["gemini"]["secondary"]["used_percent"], 10)
+            self.assertEqual(loaded_partial["claude_gpt"]["primary"]["used_percent"], 30)
+            self.assertIsNone(loaded_partial["argon"]["secondary"])
+
+            # 3. Clear all manual overrides via clear=True
+            req_clear = Request(
+                base_url + "/api/agy-usage",
+                data=json.dumps({"clear": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req_clear) as response:  # nosec B310
+                self.assertTrue(json.load(response).get("ok"))
+
+        loaded_cleared = codex_pulse.load_agy_usage(self.state_home)
+        self.assertIsNone(loaded_cleared["gemini"]["primary"])
+        self.assertIsNone(loaded_cleared["gemini"]["secondary"])
+        self.assertIsNone(loaded_cleared["claude_gpt"]["primary"])
+        self.assertIsNone(loaded_cleared["claude_gpt"]["secondary"])
+        self.assertIsNone(loaded_cleared["argon"]["secondary"])
+
+        # 4. Verify CLI --agy-clear
+        codex_pulse.save_agy_usage(self.state_home, gemini_5h_used=50)
+        codex_pulse.main(["--state-home", str(self.state_home), "--save-agy-usage", "--agy-clear"])
+        loaded_cli = codex_pulse.load_agy_usage(self.state_home)
+        self.assertIsNone(loaded_cli["gemini"]["primary"])
+
     def test_dashboard_html_contains_dual_track_agy_elements(self):
         """Verify the dashboard HTML exposes Gemini, Claude/GPT, and Argon cards and the usage dialog."""
         page = codex_pulse.dashboard_html()
@@ -843,6 +904,7 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertIn('id="agy-arg-7d-val"', page)
         self.assertIn('id="input-arg-7d"', page)
         self.assertIn('id="agy-usage-dialog"', page)
+        self.assertIn('id="agy-dialog-reset"', page)
 
     def test_dashboard_html_tasks_has_scroll_css(self):
         """Verify the dashboard HTML sets max-height and scrolling on #tasks."""
