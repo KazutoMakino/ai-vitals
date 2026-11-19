@@ -756,11 +756,21 @@ class SessionSummaryTests(unittest.TestCase):
 
     def test_classify_agy_model(self):
         """Verify Antigravity models are correctly sorted into gemini, claude_gpt, and argon families."""
+        self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Neon Medium"), "gemini")
+        self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Hydrogen Low"), "gemini")
+        self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Carbon"), "gemini")
+        self.assertEqual(codex_pulse.classify_agy_model("Orchestrator (Neon)"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 3.8 Flash Medium Fast"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 2.5 Flash"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 3.1 Pro Low"), "gemini")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Argon Medium"), "argon")
         self.assertEqual(codex_pulse.classify_agy_model("Gemini 4 Argon"), "argon")
+        self.assertEqual(codex_pulse.classify_agy_model("Orchestrator (Argon)"), "argon")
+        self.assertEqual(
+            codex_pulse.classify_agy_model("gemini-pro-orchestrator-g1-pro"), "argon"
+        )
+        self.assertEqual(codex_pulse.classify_agy_model("Claude Opus 5.5 Medium"), "claude_gpt")
+        self.assertEqual(codex_pulse.classify_agy_model("Claude Sonnet 5.5 Medium"), "claude_gpt")
         self.assertEqual(
             codex_pulse.classify_agy_model("Claude Sonnet 4.6 (Thinking)"), "claude_gpt"
         )
@@ -820,6 +830,14 @@ class SessionSummaryTests(unittest.TestCase):
         self.assertIn("GEMINI MODELS", page)
         self.assertIn("CLAUDE &amp; GPT", page)
         self.assertIn("GEMINI 4 ARGON", page)
+        self.assertIn('id="agy-gem-models"', page)
+        self.assertIn('id="agy-cld-models"', page)
+        self.assertIn('id="agy-arg-models"', page)
+        self.assertIn("Orchestrator (Neon)", page)
+        self.assertIn("Orchestrator (Argon)", page)
+        self.assertIn("ChatGPT Pro", page)
+        self.assertIn("Claude Ultra", page)
+        self.assertIn("Google AI Ultra", page)
         self.assertIn('id="agy-gem-5h-val"', page)
         self.assertIn('id="agy-cld-5h-val"', page)
         self.assertIn('id="agy-arg-7d-val"', page)

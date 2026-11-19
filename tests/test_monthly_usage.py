@@ -303,6 +303,32 @@ class MonthlyUsageTests(unittest.TestCase):
         self.assertEqual(flash_cost, 0.75)  # 0.15 + 0.60
         argon_cost = ai_vitals.agy_usage_cost("Gemini 4 Argon", agy_usage)
         self.assertEqual(argon_cost, 6.25)  # 1.25 + 5.00
+        neon_cost = ai_vitals.agy_usage_cost("Gemini 4 Neon Medium", agy_usage)
+        self.assertEqual(neon_cost, 18.00)  # 3.00 + 15.00
+        hydrogen_cost = ai_vitals.agy_usage_cost("Gemini 4 Hydrogen", agy_usage)
+        self.assertEqual(hydrogen_cost, 9.00)  # 1.50 + 7.50
+        carbon_cost = ai_vitals.agy_usage_cost("Gemini 4 Carbon", agy_usage)
+        self.assertEqual(carbon_cost, 12.00)  # 2.00 + 10.00
+        orch_neon_cost = ai_vitals.agy_usage_cost("Orchestrator (Neon)", agy_usage)
+        self.assertEqual(orch_neon_cost, 18.00)
+        orch_argon_cost = ai_vitals.agy_usage_cost("Orchestrator (Argon)", agy_usage)
+        self.assertEqual(orch_argon_cost, 6.25)
+
+        # 5. Codex 6.1 / 6.2 models
+        cost_gpt61_sol = ai_vitals.usage_cost("gpt-6.1-sol", codex_usage)
+        self.assertEqual(cost_gpt61_sol, 12.00)  # 2.00 + 10.00
+        cost_gpt62_luna = ai_vitals.usage_cost("gpt-6.2-luna", codex_usage)
+        self.assertEqual(cost_gpt62_luna, 0.60)  # 0.10 + 0.50
+        cost_gpt62_astra = ai_vitals.usage_cost("gpt-6.2-astra", codex_usage)
+        self.assertEqual(cost_gpt62_astra, 60.00)  # 10.00 + 50.00
+
+        # 6. Claude dot-separated version names
+        cost_opus_dot = ai_vitals.claude_usage_cost("claude-opus-5.5", usage)
+        self.assertIsNotNone(cost_opus_dot)
+        self.assertEqual(cost_opus_dot["minimum_usd"], 24.0)
+        cost_sonnet_dot = ai_vitals.claude_usage_cost("claude-sonnet-5.5", usage)
+        self.assertIsNotNone(cost_sonnet_dot)
+        self.assertEqual(cost_sonnet_dot["minimum_usd"], 12.0)
 
 
 if __name__ == "__main__":
